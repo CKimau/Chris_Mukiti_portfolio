@@ -8,7 +8,7 @@ import numpy as np
 import altair as alt
 from datetime import datetime
 import sqlite3
-from prophet import Prophet
+import Prophet
 import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error, r2_score
@@ -1098,4 +1098,5 @@ st.markdown(f"""
     <p style='margin-bottom: 0.5rem;'>CK • {datetime.now().year} Chris Kimau</p>
     <p style='margin: 0; font-size: 0.9em;'>Transforming supply chains through AI-driven forecasting and data-driven optimization</p>
 </div>
+
 """, unsafe_allow_html=True)
