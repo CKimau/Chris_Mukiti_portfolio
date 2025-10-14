@@ -1,5 +1,5 @@
 # streamlit_portfolio.py
-# Light Theme Supply Chain Portfolio with Tableau & Power BI Dashboards
+# Light Theme Supply Chain Portfolio - No Plotly Dependencies
 # Run: `streamlit run streamlit_portfolio.py`
 
 import streamlit as st
@@ -8,8 +8,6 @@ import numpy as np
 import altair as alt
 from datetime import datetime
 import sqlite3
-import plotly.express as px
-import plotly.graph_objects as go
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error, r2_score
 
 # Try to import Prophet, but provide fallback if not available
@@ -199,30 +197,6 @@ footer {{visibility: hidden;}}
     border: 1px solid {BORDER};
 }}
 
-/* Table styling */
-.dashboard-table {{
-    width: 100%;
-    border-collapse: collapse;
-    margin: 1rem 0;
-}}
-
-.dashboard-table th {{
-    background: {PRIMARY};
-    color: white;
-    padding: 12px;
-    text-align: left;
-    font-weight: 600;
-}}
-
-.dashboard-table td {{
-    padding: 12px;
-    border-bottom: 1px solid {BORDER};
-}}
-
-.dashboard-table tr:hover {{
-    background: rgba(37, 99, 235, 0.05);
-}}
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -311,65 +285,55 @@ def create_supply_chain_skill_chart():
     
     return chart
 
-# ---------------------------
-# Dashboard Data & Examples
-# ---------------------------
-def create_sample_dashboard_data():
-    """Create sample data for dashboard examples"""
-    # Sample inventory data
-    inventory_data = pd.DataFrame({
-        'Product': ['BOPP 35µ Film', 'White PE', 'BOPP 20µ Film', 'Clear PP', 'Metallized Film'],
-        'Current Stock': [1250, 890, 1100, 750, 600],
-        'Safety Stock': [500, 300, 400, 250, 200],
-        'Monthly Demand': [1500, 1000, 1200, 800, 500],
-        'Stockout Risk': ['Low', 'Medium', 'Low', 'High', 'Medium']
+def create_forecast_chart_altair(historical_dates, historical_values, forecast_dates, forecast_values):
+    """Create a forecast chart using Altair"""
+    # Create dataframes for historical and forecast data
+    historical_df = pd.DataFrame({
+        'Date': historical_dates,
+        'Value': historical_values,
+        'Type': 'Historical'
     })
     
-    # Sample forecast data
-    dates = pd.date_range(start='2024-01-01', periods=12, freq='M')
-    forecast_data = pd.DataFrame({
-        'Month': dates,
-        'Actual': [1200, 1350, 1100, 1450, 1300, 1400, 1250, 1500, 1350, 1420, 1280, 1480],
-        'Forecast': [1150, 1300, 1150, 1400, 1320, 1380, 1280, 1480, 1370, 1450, 1300, 1500]
+    forecast_df = pd.DataFrame({
+        'Date': forecast_dates,
+        'Value': forecast_values,
+        'Type': 'Forecast'
     })
     
-    return inventory_data, forecast_data
+    # Combine data
+    combined_df = pd.concat([historical_df, forecast_df])
+    
+    # Create chart
+    chart = alt.Chart(combined_df).mark_line().encode(
+        x='Date:T',
+        y='Value:Q',
+        color=alt.Color('Type:N', scale=alt.Scale(
+            domain=['Historical', 'Forecast'],
+            range=[PRIMARY, ACCENT]
+        )),
+        strokeDash=alt.StrokeDash('Type:N', scale=alt.Scale(
+            domain=['Historical', 'Forecast'],
+            range=[[0], [5, 5]]  # Solid for historical, dashed for forecast
+        ))
+    ).properties(
+        width=700,
+        height=400,
+        title='Demand Forecast'
+    )
+    
+    return chart
 
-def create_dashboard_preview(title, description, metrics, chart_type="bar"):
-    """Create a dashboard preview component"""
-    col1, col2 = st.columns([2, 1])
+def create_sample_forecast_data():
+    """Generate sample forecast data"""
+    dates = pd.date_range(start='2024-01-01', periods=12, freq='M')
+    actual = [1200, 1350, 1100, 1450, 1300, 1400, 1250, 1500, 1350, 1420, 1280, 1480]
+    forecast = [1150, 1300, 1150, 1400, 1320, 1380, 1280, 1480, 1370, 1450, 1300, 1500]
     
-    with col1:
-        st.markdown(f"### {title}")
-        st.markdown(f"<div class='readable-text'>{description}</div>", unsafe_allow_html=True)
-        
-        # Create a simple chart based on type
-        if chart_type == "bar":
-            chart_data = pd.DataFrame({
-                'Category': ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
-                'Value': [100, 120, 90, 150, 130]
-            })
-            chart = alt.Chart(chart_data).mark_bar(color=PRIMARY).encode(
-                x='Category',
-                y='Value'
-            ).properties(height=200)
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            # Line chart
-            chart_data = pd.DataFrame({
-                'Month': pd.date_range('2024-01-01', periods=5, freq='M'),
-                'Value': [100, 120, 90, 150, 130]
-            })
-            chart = alt.Chart(chart_data).mark_line(color=ACCENT).encode(
-                x='Month',
-                y='Value'
-            ).properties(height=200)
-            st.altair_chart(chart, use_container_width=True)
-    
-    with col2:
-        st.markdown("### Key Metrics")
-        for metric_name, metric_value, delta in metrics:
-            st.metric(metric_name, metric_value, delta)
+    return pd.DataFrame({
+        'Month': dates,
+        'Actual': actual,
+        'Forecast': forecast
+    })
 
 # ---------------------------
 # Sidebar
@@ -395,7 +359,7 @@ with st.sidebar:
     
     # Navigation
     st.markdown("### 🧭 Navigation")
-    nav_options = ["🏠 Home", "👨‍💻 Profile", "💼 Experience", "📊 Dashboards", "🚀 Projects", "🛠️ Skills", "📈 Forecasting", "📞 Contact"]
+    nav_options = ["🏠 Home", "👨‍💻 Profile", "💼 Experience", "📊 Dashboards", "🚀 Projects", "🛠️ Skills", "📞 Contact"]
     selected_nav = st.radio("", nav_options, label_visibility="collapsed")
     
     st.write("---")
@@ -532,6 +496,30 @@ if "🏠 Home" in selected_nav:
         st.metric("Forecast Accuracy", "+25%", "Through AI models")
     with col4:
         st.metric("Cost Savings", "15%", "Logistics optimization")
+        
+    # Sample Forecast Chart
+    st.markdown("### 📈 Sample Supply Chain Forecast")
+    sample_data = create_sample_forecast_data()
+    
+    # Create Altair chart
+    chart_data = sample_data.melt('Month', var_name='Type', value_name='Value')
+    forecast_chart = alt.Chart(chart_data).mark_line().encode(
+        x='Month:T',
+        y='Value:Q',
+        color=alt.Color('Type:N', scale=alt.Scale(
+            domain=['Actual', 'Forecast'],
+            range=[PRIMARY, ACCENT]
+        )),
+        strokeDash=alt.StrokeDash('Type:N', scale=alt.Scale(
+            domain=['Actual', 'Forecast'],
+            range=[[0], [5, 5]]
+        ))
+    ).properties(
+        height=300,
+        title='Monthly Demand Forecast vs Actual'
+    )
+    
+    st.altair_chart(forecast_chart, use_container_width=True)
 
 elif "👨‍💻 Profile" in selected_nav:
     st.markdown("## 👨‍💻 Professional Profile")
@@ -770,7 +758,15 @@ elif "📊 Dashboards" in selected_nav:
     
     # Sample Dashboard Data Table
     st.markdown("### 📋 Sample Dashboard Metrics")
-    inventory_data, forecast_data = create_sample_dashboard_data()
+    
+    # Create sample data
+    inventory_data = pd.DataFrame({
+        'Product': ['BOPP 35µ Film', 'White PE', 'BOPP 20µ Film', 'Clear PP', 'Metallized Film'],
+        'Current Stock': [1250, 890, 1100, 750, 600],
+        'Safety Stock': [500, 300, 400, 250, 200],
+        'Monthly Demand': [1500, 1000, 1200, 800, 500],
+        'Stockout Risk': ['Low', 'Medium', 'Low', 'High', 'Medium']
+    })
     
     col1, col2 = st.columns(2)
     
@@ -779,8 +775,14 @@ elif "📊 Dashboards" in selected_nav:
         st.dataframe(inventory_data, use_container_width=True)
     
     with col2:
-        st.markdown("#### Forecast Accuracy")
-        st.dataframe(forecast_data, use_container_width=True)
+        st.markdown("#### Performance Metrics")
+        metrics_data = pd.DataFrame({
+            'Metric': ['Forecast Accuracy', 'Inventory Turnover', 'Service Level', 'Cost Reduction'],
+            'Current': ['94%', '8.2x', '98.5%', '15%'],
+            'Target': ['95%', '9.0x', '99%', '20%'],
+            'Status': ['On Track', 'Improving', 'Excellent', 'Good']
+        })
+        st.dataframe(metrics_data, use_container_width=True)
     
     # Technical Specifications
     st.markdown("### 🛠️ Technical Specifications")
@@ -815,7 +817,7 @@ elif "📊 Dashboards" in selected_nav:
         </div>
         """, unsafe_allow_html=True)
 
-# [Other sections remain similar but with light theme applied...]
+# [Other sections continue...]
 
 elif "🚀 Projects" in selected_nav:
     st.markdown("## 🚀 Supply Chain Projects")
@@ -924,7 +926,168 @@ elif "🛠️ Skills" in selected_nav:
         </div>
         """, unsafe_allow_html=True)
 
-# [Other sections continue with light theme...]
+elif "💼 Experience" in selected_nav:
+    st.markdown("## 💼 Professional Experience")
+    
+    # Current Role - Highlighted
+    st.markdown(f"""
+    <div class='role-highlight'>
+        <div style='display: flex; justify-content: between; align-items: start;'>
+            <div>
+                <h3 style='margin: 0; color: {PRIMARY};'>Warehouse & Inventory Manager</h3>
+                <h4 style='margin: 8px 0; color: {TEXT};'>Skanem Africa · Full-time</h4>
+                <p style='margin: 0; color: {SUBTEXT};'>Oct 2024 - Present</p>
+            </div>
+            <span class='badge'>Current Role</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown(f"""
+    <div class='neon-card' style='margin-top: 0;'>
+        <h4 style='color: {PRIMARY}; margin-bottom: 1rem;'>Supply Chain & Analytics Responsibilities:</h4>
+        <ul>
+        <li>Implement demand forecasting pipelines and inventory optimization dashboards</li>
+        <li>Develop Tableau and Power BI reports for supply chain performance monitoring</li>
+        <li>Oversee finished goods inventory and SKU-level tracking systems</li>
+        <li>Collaborate with logistics partners on distribution planning and optimization</li>
+        <li>Lead process improvement initiatives to enhance supply chain efficiency</li>
+        <li>Manage safety stock levels and reorder point calculations</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Previous Roles
+    experiences = [
+        {
+            'title': 'Supply Chain Analyst',
+            'company': 'Mabati Rolling Mills',
+            'period': 'Jan 2024 – Oct 2024',
+            'achievements': [
+                'Developed AI-driven demand forecasting models reducing stockouts by 20%',
+                'Created interactive Power BI dashboards improving sales efficiency by 15%',
+                'Optimized inventory levels, reducing excess stock by 35% while maintaining service levels',
+                'Collaborated with cross-functional teams to enhance data-driven decision-making',
+                'Implemented supply chain performance metrics and reporting frameworks'
+            ]
+        },
+        {
+            'title': 'Warehouse Officer',
+            'company': 'Mabati Rolling Mills', 
+            'period': 'July 2022 – 2023',
+            'achievements': [
+                'Managed data-driven forecasting for supply chain continuity and risk mitigation',
+                'Improved inventory accuracy by 18% through process optimization and system enhancements',
+                'Integrated machine learning models for demand forecasting and lead time reduction',
+                'Optimized warehouse layout and storage strategies for improved efficiency'
+            ]
+        }
+    ]
+    
+    for exp in experiences:
+        st.markdown(f"""
+        <div class='neon-card'>
+            <h3 style='color: {PRIMARY}; margin-bottom: 8px;'>{exp['title']}</h3>
+            <h4 style='margin: 4px 0; color: {TEXT};'>{exp['company']}</h4>
+            <p style='margin: 0 0 1rem 0; color: {SUBTEXT};'>{exp['period']}</p>
+            <ul style='margin-top: 1rem;'>
+        """, unsafe_allow_html=True)
+        
+        for achievement in exp['achievements']:
+            st.markdown(f"<li class='readable-text'>{achievement}</li>", unsafe_allow_html=True)
+            
+        st.markdown("</ul></div>", unsafe_allow_html=True)
+
+elif "📞 Contact" in selected_nav:
+    st.markdown("## 📞 Get In Touch")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown(f"""
+        <div class='neon-card'>
+            <h3 style='color: {PRIMARY}; margin-bottom: 1.5rem;'>Let's Transform Your Supply Chain</h3>
+            <div class='readable-text'>
+            I'm passionate about helping organizations optimize their supply chain operations through data-driven 
+            forecasting and planning. Whether you're looking to improve forecast accuracy, reduce inventory costs, 
+            or optimize logistics operations, I can help you achieve measurable results.
+            </div>
+            
+            <h4 style='color: {PRIMARY}; margin-top: 2rem; margin-bottom: 1rem;'>How I Can Help:</h4>
+            <ul>
+            <li><strong>Demand Forecasting:</strong> Implement AI-driven forecasting models for better accuracy</li>
+            <li><strong>Inventory Optimization:</strong> Reduce costs while maintaining service levels</li>
+            <li><strong>Supply Chain Analytics:</strong> Build dashboards and reporting systems</li>
+            <li><strong>Process Improvement:</strong> Streamline supply chain operations</li>
+            <li><strong>Technology Implementation:</strong> Deploy supply chain management systems</li>
+            <li><strong>Logistics Optimization:</strong> Design efficient distribution networks</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class='neon-card'>
+            <h4 style='color: {PRIMARY}; margin-bottom: 1.5rem;'>👤 Contact Information</h4>
+            <div style='margin-bottom: 1.5rem;'>
+                <h5 style='color: {TEXT}; margin-bottom: 8px;'>📍 Location</h5>
+                <p style='margin: 0; color: {SUBTEXT};'>Nairobi, Kenya</p>
+            </div>
+            <div style='margin-bottom: 1.5rem;'>
+                <h5 style='color: {TEXT}; margin-bottom: 8px;'>📧 Email</h5>
+                <p style='margin: 0; color: {SUBTEXT};'>kimauchris0@gmail.com</p>
+            </div>
+            <div style='margin-bottom: 2rem;'>
+                <h5 style='color: {TEXT}; margin-bottom: 8px;'>📱 Phone</h5>
+                <p style='margin: 0; color: {SUBTEXT};'>+254 706 109 248</p>
+            </div>
+            
+            <div style='margin-top: 2rem;'>
+                <a href='https://linkedin.com/in/chrismukitikimau' style='text-decoration: none;'>
+                    <div style='padding: 12px; background: #0077B5; color: white; border-radius: 8px; text-align: center; margin: 8px 0; font-weight: 500;'>
+                        💼 LinkedIn Profile
+                    </div>
+                </a>
+                <a href='https://github.com/Ckimau' style='text-decoration: none;'>
+                    <div style='padding: 12px; background: #333; color: white; border-radius: 8px; text-align: center; margin: 8px 0; font-weight: 500;'>
+                        💻 GitHub Profile
+                    </div>
+                </a>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Contact Form
+    st.markdown("### 📝 Send a Message")
+    
+    with st.form("contact_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            name = st.text_input("Your Name")
+            email = st.text_input("Your Email")
+        
+        with col2:
+            company = st.text_input("Company")
+            subject = st.selectbox("Subject", [
+                "Supply Chain Consulting",
+                "Demand Forecasting", 
+                "Inventory Optimization",
+                "Logistics Planning",
+                "Job Opportunity",
+                "Project Collaboration",
+                "Other"
+            ])
+        
+        message = st.text_area("Message", height=150, placeholder="Tell me about your supply chain challenges or project requirements...")
+        
+        submitted = st.form_submit_button("🚀 Send Message")
+        
+        if submitted:
+            if name and email and message:
+                st.success("✅ Thank you for your message! I'll get back to you within 24 hours.")
+            else:
+                st.warning("⚠️ Please fill in all required fields.")
 
 # ---------------------------
 # Footer
