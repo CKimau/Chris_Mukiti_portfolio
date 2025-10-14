@@ -1,5 +1,5 @@
 # streamlit_portfolio.py
-# Light Theme Supply Chain Portfolio - No Plotly Dependencies
+# Light Theme Supply Chain Portfolio - Handles Missing Dependencies
 # Run: `streamlit run streamlit_portfolio.py`
 
 import streamlit as st
@@ -8,7 +8,14 @@ import numpy as np
 import altair as alt
 from datetime import datetime
 import sqlite3
-from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error, r2_score
+
+# Try to import scikit-learn, but provide fallback if not available
+try:
+    from sklearn.metrics import mean_squared_error, r2_score
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    st.warning("⚠️ Scikit-learn not available. Some advanced features will be limited.")
 
 # Try to import Prophet, but provide fallback if not available
 try:
@@ -285,43 +292,22 @@ def create_supply_chain_skill_chart():
     
     return chart
 
-def create_forecast_chart_altair(historical_dates, historical_values, forecast_dates, forecast_values):
-    """Create a forecast chart using Altair"""
-    # Create dataframes for historical and forecast data
-    historical_df = pd.DataFrame({
-        'Date': historical_dates,
-        'Value': historical_values,
-        'Type': 'Historical'
-    })
-    
-    forecast_df = pd.DataFrame({
-        'Date': forecast_dates,
-        'Value': forecast_values,
-        'Type': 'Forecast'
-    })
-    
-    # Combine data
-    combined_df = pd.concat([historical_df, forecast_df])
-    
-    # Create chart
-    chart = alt.Chart(combined_df).mark_line().encode(
-        x='Date:T',
-        y='Value:Q',
-        color=alt.Color('Type:N', scale=alt.Scale(
-            domain=['Historical', 'Forecast'],
-            range=[PRIMARY, ACCENT]
-        )),
-        strokeDash=alt.StrokeDash('Type:N', scale=alt.Scale(
-            domain=['Historical', 'Forecast'],
-            range=[[0], [5, 5]]  # Solid for historical, dashed for forecast
-        ))
-    ).properties(
-        width=700,
-        height=400,
-        title='Demand Forecast'
-    )
-    
-    return chart
+def safe_mape(y_true, y_pred):
+    """Custom MAPE calculation that doesn't require sklearn"""
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    epsilon = np.finfo(np.float64).eps
+    return np.mean(np.abs((y_true - y_pred) / np.maximum(np.abs(y_true), epsilon))) * 100
+
+def simple_rmse(y_true, y_pred):
+    """Custom RMSE calculation that doesn't require sklearn"""
+    return np.sqrt(np.mean((np.array(y_true) - np.array(y_pred)) ** 2))
+
+def simple_r2(y_true, y_pred):
+    """Custom R² calculation that doesn't require sklearn"""
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    return 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
 
 def create_sample_forecast_data():
     """Generate sample forecast data"""
@@ -520,6 +506,23 @@ if "🏠 Home" in selected_nav:
     )
     
     st.altair_chart(forecast_chart, use_container_width=True)
+    
+    # Show forecast metrics using custom functions (no sklearn dependency)
+    if len(sample_data) > 0:
+        st.markdown("### 📋 Forecast Performance")
+        actual_values = sample_data['Actual'].values
+        forecast_values = sample_data['Forecast'].values
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            mape = safe_mape(actual_values, forecast_values)
+            st.metric("MAPE", f"{mape:.1f}%")
+        with col2:
+            rmse = simple_rmse(actual_values, forecast_values)
+            st.metric("RMSE", f"{rmse:.0f}")
+        with col3:
+            r2 = simple_r2(actual_values, forecast_values)
+            st.metric("R² Score", f"{r2:.3f}")
 
 elif "👨‍💻 Profile" in selected_nav:
     st.markdown("## 👨‍💻 Professional Profile")
@@ -783,41 +786,6 @@ elif "📊 Dashboards" in selected_nav:
             'Status': ['On Track', 'Improving', 'Excellent', 'Good']
         })
         st.dataframe(metrics_data, use_container_width=True)
-    
-    # Technical Specifications
-    st.markdown("### 🛠️ Technical Specifications")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown(f"""
-        <div class='neon-card'>
-            <h4 style='color: {PRIMARY}; margin-bottom: 1rem;'>Tableau Stack</h4>
-            <ul>
-            <li><strong>Data Sources:</strong> SQL Server, SAP, Excel</li>
-            <li><strong>Visualizations:</strong> Interactive dashboards, maps, trend lines</li>
-            <li><strong>Features:</strong> Parameters, sets, LOD calculations</li>
-            <li><strong>Deployment:</strong> Tableau Server, Tableau Online</li>
-            <li><strong>Integration:</strong> REST API, Web Data Connectors</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class='neon-card'>
-            <h4 style='color: {PRIMARY}; margin-bottom: 1rem;'>Power BI Stack</h4>
-            <ul>
-            <li><strong>Data Sources:</strong> Dataflows, SQL, APIs</li>
-            <li><strong>Modeling:</strong> Star schema, DAX measures</li>
-            <li><strong>Features:</strong> Power Query, Row-level security</li>
-            <li><strong>Deployment:</strong> Power BI Service, Embedded</li>
-            <li><strong>Integration:</strong> Power Automate, Azure services</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-# [Other sections continue...]
 
 elif "🚀 Projects" in selected_nav:
     st.markdown("## 🚀 Supply Chain Projects")
