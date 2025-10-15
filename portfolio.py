@@ -11,7 +11,7 @@ import sqlite3
 
 # Try to import scikit-learn, but provide fallback if not available
 try:
-    from sklearn.metrics import mean_squared_error, r2_score
+    from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
@@ -23,6 +23,14 @@ try:
     PROPHET_AVAILABLE = True
 except ImportError:
     PROPHET_AVAILABLE = False
+
+# Try to import plotly
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
 
 # ---------------------------
 # Page config & Theme
@@ -204,6 +212,19 @@ footer {{visibility: hidden;}}
     border: 1px solid {BORDER};
 }}
 
+/* Conditional formatting for metrics */
+.metric-good {{
+    border-left: 4px solid {ACCENT};
+}}
+
+.metric-warning {{
+    border-left: 4px solid #F59E0B;
+}}
+
+.metric-poor {{
+    border-left: 4px solid #EF4444;
+}}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -321,6 +342,483 @@ def create_sample_forecast_data():
         'Forecast': forecast
     })
 
+def mean_absolute_percentage_error(y_true, y_pred):
+    """Calculate MAPE"""
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    return np.mean(np.abs((y_true - y_pred) / np.maximum(np.abs(y_true), 1))) * 100
+
+def get_metric_color(metric, value):
+    """Determine color based on metric thresholds"""
+    if metric == 'mape':
+        return ACCENT if value < 10 else '#F59E0B' if value < 20 else '#EF4444'
+    elif metric == 'rmse':
+        # For RMSE, we need context about the data scale, so we'll use a simple approach
+        return ACCENT if value < 100 else '#F59E0B' if value < 200 else '#EF4444'
+    elif metric == 'r2':
+        return ACCENT if value > 0.7 else '#F59E0B' if value > 0.5 else '#EF4444'
+    return PRIMARY
+
+# ---------------------------
+# Forecasting App Functions
+# ---------------------------
+def forecasting_app():
+    st.header("📈 Supply Chain Forecasting Demo")
+    
+    st.markdown(f"""
+    <div class='neon-card'>
+        <h3 style='color: {PRIMARY}; margin-bottom: 1rem;'>AI-Powered Demand Forecasting</h3>
+        <div class='readable-text'>
+        This interactive demo showcases advanced supply chain forecasting capabilities using machine learning. 
+        Upload your historical data or use our sample data to generate accurate demand forecasts with performance metrics.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.subheader("1. Upload Your Data")
+    uploaded_file = st.file_uploader("Upload CSV or Excel file with historical data", 
+                                   type=["csv", "xlsx"], 
+                                   key="forecast_upload")
+
+    # Initialize with empty dataframe
+    df = pd.DataFrame()
+    
+    if uploaded_file:
+        try:
+            if uploaded_file.name.endswith(".csv"):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+            
+            st.session_state.uploaded_data = df
+            st.success("✅ Data loaded successfully")
+            
+            # Show data preview
+            st.subheader("📋 Data Preview")
+            st.dataframe(df.head())
+            
+        except Exception as e:
+            st.error(f"❌ Error reading file: {e}")
+            st.stop()
+    else:
+        # Use sample data if no file uploaded
+        st.info("💡 Using sample supply chain data. Upload your own CSV/Excel file for custom analysis.")
+        df = pd.DataFrame({
+            'Date': pd.date_range(start='2023-01-01', periods=24, freq='M'),
+            'Demand': [1200, 1350, 1100, 1450, 1300, 1400, 1250, 1500, 1350, 1420, 1280, 1480, 
+                      1550, 1400, 1600, 1450, 1520, 1380, 1480, 1620, 1450, 1580, 1420, 1650],
+            'Product': ['Product_A'] * 12 + ['Product_B'] * 12
+        })
+        st.dataframe(df.head())
+
+    if not df.empty:
+        st.subheader("2. Configure Your Forecast")
+        
+        # Column selection
+        cols = st.columns(2)
+        with cols[0]:
+            date_col = st.selectbox("Select Date Column", 
+                                  df.columns, 
+                                  key="forecast_date_col")
+        with cols[1]:
+            numeric_cols = df.select_dtypes(include='number').columns
+            value_col = st.selectbox("Select Value Column", 
+                                   numeric_cols if len(numeric_cols) > 0 else df.columns, 
+                                   key="forecast_value_col")
+        
+        # Item filter
+        item_col = st.selectbox("Filter by Item Column (optional)", 
+                              ["No filter"] + [c for c in df.columns if c not in [date_col, value_col]],
+                              key="forecast_item_col")
+        
+        selected_items = []
+        if item_col != "No filter":
+            selected_items = st.multiselect("Select items to forecast (select one or more)", 
+                                          df[item_col].unique(),
+                                          key="forecast_item_select")
+            st.info(f"Selected {len(selected_items)} items for forecasting")
+
+        # Prepare data
+        try:
+            df[date_col] = pd.to_datetime(df[date_col])
+            
+            if selected_items:
+                df = df[df[item_col].isin(selected_items)]
+                st.success(f"Filtered data for {len(selected_items)} items")
+            else:
+                st.info("No specific items selected. Using all available data.")
+            
+            df = df[[date_col, value_col] + ([item_col] if item_col != "No filter" else [])]
+            df = df.rename(columns={date_col: "ds", value_col: "y"})
+            df = df.dropna().sort_values("ds")
+            
+            # Get the latest date from the data
+            last_date = df['ds'].max()
+            
+        except Exception as e:
+            st.error(f"❌ Error preparing data: {e}")
+            st.stop()
+
+        st.subheader("3. Forecast Settings")
+        
+        # Forecast configuration
+        method = st.radio("Forecasting method", 
+                         ["Prophet (recommended)", "Simple Trend"],
+                         horizontal=True)
+        
+        cols = st.columns(2)
+        with cols[0]:
+            # Calculate default forecast end date (6 months from last date)
+            default_end_date = last_date + pd.DateOffset(months=6)
+            
+            # Create date input for forecast end date
+            forecast_end_date = st.date_input(
+                "Select Forecast End Date",
+                min_value=last_date + pd.Timedelta(days=1),
+                max_value=datetime(2028, 12, 31),
+                value=default_end_date
+            )
+            
+            # Convert to pandas Timestamp
+            forecast_end_date = pd.Timestamp(forecast_end_date)
+        with cols[1]:
+            freq = st.radio("Frequency", 
+                          ["Daily", "Weekly", "Monthly"], 
+                          horizontal=True)
+        
+        if st.button("Generate Forecast", type="primary"):
+            with st.spinner("Creating forecast..."):
+                try:
+                    # Calculate horizon based on selected end date
+                    last_date = df['ds'].max()
+                    date_range = pd.date_range(start=last_date, end=forecast_end_date, freq='D')
+                    
+                    if freq == "Daily":
+                        horizon = len(date_range) - 1
+                    elif freq == "Weekly":
+                        horizon = len(date_range) // 7
+                    else:  # Monthly
+                        horizon = (forecast_end_date.year - last_date.year) * 12 + \
+                                 (forecast_end_date.month - last_date.month)
+                    
+                    # Ensure at least 1 period
+                    horizon = max(1, horizon)
+                    
+                    # Handle multiple items forecasting
+                    all_forecasts = []
+                    
+                    if item_col != "No filter" and selected_items:
+                        # Forecast for each selected item individually
+                        for item in selected_items:
+                            st.write(f"🔮 Forecasting for: {item}")
+                            
+                            # Filter data for current item
+                            item_data = df[df[item_col] == item][['ds', 'y']].copy()
+                            
+                            if len(item_data) < 2:
+                                st.warning(f"Not enough data for {item}. Skipping.")
+                                continue
+                            
+                            # Simple forecasting if Prophet not available
+                            if not PROPHET_AVAILABLE or method == "Simple Trend":
+                                # Simple linear trend forecast
+                                item_data['days'] = (item_data['ds'] - item_data['ds'].min()).dt.days
+                                trend = np.polyfit(item_data['days'], item_data['y'], 1)
+                                
+                                # Create future dates
+                                future_dates = pd.date_range(start=last_date, periods=horizon+1, freq='D')[1:]
+                                future_days = (future_dates - item_data['ds'].min()).days
+                                
+                                future_forecast = trend[0] * future_days + trend[1]
+                                
+                                # Create result dataframe
+                                future_df = pd.DataFrame({
+                                    'ds': future_dates,
+                                    'yhat': future_forecast,
+                                    'yhat_lower': future_forecast * 0.9,
+                                    'yhat_upper': future_forecast * 1.1
+                                })
+                                
+                                result = pd.merge(item_data, future_df, on='ds', how='outer')
+                                result[item_col] = item
+                                all_forecasts.append(result)
+                                
+                            else:
+                                # Prophet forecasting
+                                m = Prophet()
+                                m.fit(item_data)
+                                
+                                # Map frequency to Prophet frequency codes
+                                freq_map = {
+                                    "Daily": "D",
+                                    "Weekly": "W",
+                                    "Monthly": "M"
+                                }
+                                
+                                future = m.make_future_dataframe(periods=horizon, freq=freq_map[freq])
+                                forecast = m.predict(future)
+                                
+                                # Merge actuals and forecast
+                                result = pd.merge(item_data, forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']], 
+                                                on='ds', how='outer')
+                                
+                                # Add item information
+                                result[item_col] = item
+                                all_forecasts.append(result)
+                    
+                    else:
+                        # Single time series forecasting (no item grouping)
+                        if not PROPHET_AVAILABLE or method == "Simple Trend":
+                            # Simple trend for single series
+                            df_simple = df[['ds', 'y']].copy()
+                            df_simple['days'] = (df_simple['ds'] - df_simple['ds'].min()).dt.days
+                            trend = np.polyfit(df_simple['days'], df_simple['y'], 1)
+                            
+                            future_dates = pd.date_range(start=last_date, periods=horizon+1, freq='D')[1:]
+                            future_days = (future_dates - df_simple['ds'].min()).days
+                            
+                            future_forecast = trend[0] * future_days + trend[1]
+                            
+                            future_df = pd.DataFrame({
+                                'ds': future_dates,
+                                'yhat': future_forecast,
+                                'yhat_lower': future_forecast * 0.9,
+                                'yhat_upper': future_forecast * 1.1
+                            })
+                            
+                            result = pd.merge(df_simple[['ds', 'y']], future_df, on='ds', how='outer')
+                            if item_col != "No filter":
+                                result[item_col] = "All Items"
+                            all_forecasts.append(result)
+                        else:
+                            # Prophet for single series
+                            m = Prophet()
+                            m.fit(df[['ds', 'y']])
+                            
+                            freq_map = {
+                                "Daily": "D",
+                                "Weekly": "W",
+                                "Monthly": "M"
+                            }
+                            
+                            future = m.make_future_dataframe(periods=horizon, freq=freq_map[freq])
+                            forecast = m.predict(future)
+                            
+                            result = pd.merge(df[['ds', 'y']], forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']], 
+                                            on='ds', how='outer')
+                            if item_col != "No filter":
+                                result[item_col] = "All Items"
+                            all_forecasts.append(result)
+                    
+                    # Combine all forecasts
+                    if not all_forecasts:
+                        st.error("No forecasts generated. Check your data and selections.")
+                        st.stop()
+                    
+                    combined_result = pd.concat(all_forecasts, ignore_index=True)
+                    
+                    # Ensure no negative forecasts
+                    combined_result['yhat'] = combined_result['yhat'].clip(lower=0)
+                    combined_result['yhat_lower'] = combined_result['yhat_lower'].clip(lower=0)
+                    combined_result['yhat_upper'] = combined_result['yhat_upper'].clip(lower=0)
+                    
+                    # Filter to show only up to the selected end date
+                    combined_result = combined_result[combined_result['ds'] <= forecast_end_date]
+                    
+                    # Forecast Preview
+                    st.subheader("📋 Forecast Preview")
+                    preview_df = combined_result[combined_result['ds'] > last_date].copy()
+                    
+                    # Display preview with item information
+                    display_cols = ['ds', 'y', 'yhat', 'yhat_lower', 'yhat_upper']
+                    if item_col != "No filter":
+                        display_cols.insert(0, item_col)
+                    
+                    st.dataframe(preview_df[display_cols].head(10).style.format({
+                        'yhat': '{:.2f}',
+                        'yhat_lower': '{:.2f}',
+                        'yhat_upper': '{:.2f}',
+                        'y': '{:.2f}'
+                    }))
+                    
+                    # Visualization for multiple items
+                    st.subheader("📊 Forecast Results")
+                    
+                    if PLOTLY_AVAILABLE:
+                        fig = go.Figure()
+                        
+                        # Color palette for multiple items
+                        colors = px.colors.qualitative.Set1
+                        
+                        if item_col != "No filter" and selected_items:
+                            # Plot each item separately
+                            for i, item in enumerate(selected_items):
+                                item_data = combined_result[combined_result[item_col] == item]
+                                
+                                color = colors[i % len(colors)]
+                                
+                                # Actual values
+                                actuals = item_data.dropna(subset=['y'])
+                                if not actuals.empty:
+                                    fig.add_trace(go.Scatter(
+                                        x=actuals['ds'], y=actuals['y'],
+                                        name=f'{item} - Actual',
+                                        line=dict(color=color),
+                                        mode='lines+markers',
+                                        opacity=0.7
+                                    ))
+                                
+                                # Forecast
+                                forecasts = item_data[item_data['ds'] > last_date]
+                                if not forecasts.empty:
+                                    fig.add_trace(go.Scatter(
+                                        x=forecasts['ds'], y=forecasts['yhat'],
+                                        name=f'{item} - Forecast',
+                                        line=dict(color=color, dash='dash'),
+                                        opacity=0.9
+                                    ))
+                        else:
+                            # Single time series
+                            # Actual values
+                            actuals = combined_result.dropna(subset=['y'])
+                            if not actuals.empty:
+                                fig.add_trace(go.Scatter(
+                                    x=actuals['ds'], y=actuals['y'],
+                                    name='Actual',
+                                    line=dict(color=colors[0]),
+                                    mode='lines+markers'
+                                ))
+                            
+                            # Forecast
+                            forecasts = combined_result[combined_result['ds'] > last_date]
+                            if not forecasts.empty:
+                                fig.add_trace(go.Scatter(
+                                    x=forecasts['ds'], y=forecasts['yhat'],
+                                    name='Forecast',
+                                    line=dict(color=colors[1])
+                                ))
+                        
+                        # Add vertical line to separate historical data and forecast
+                        fig.add_vline(x=last_date.timestamp() * 1000, 
+                                    line_dash="dash", 
+                                    line_color="green",
+                                    annotation_text="Forecast Start",
+                                    annotation_position="top left")
+                        
+                        title = "Forecast vs Actuals"
+                        if item_col != "No filter" and selected_items:
+                            title += f" - {len(selected_items)} Items"
+                        
+                        fig.update_layout(
+                            title=title,
+                            xaxis_title='Date',
+                            yaxis_title='Value',
+                            hovermode='x unified',
+                            template='plotly_white',
+                            height=600
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning("Plotly not available for advanced visualizations")
+
+                    # Accuracy Metrics with Conditional Formatting
+                    if 'y' in combined_result.columns:
+                        actuals_with_forecast = combined_result.dropna(subset=['y', 'yhat'])
+                        if len(actuals_with_forecast) > 0:
+                            st.subheader("🔍 Forecast Accuracy Metrics")
+                            
+                            # Calculate metrics per item if multiple items
+                            if item_col != "No filter" and selected_items:
+                                metrics_data = []
+                                for item in selected_items:
+                                    item_data = actuals_with_forecast[actuals_with_forecast[item_col] == item]
+                                    if len(item_data) > 0:
+                                        mape = mean_absolute_percentage_error(item_data['y'], item_data['yhat'])
+                                        rmse = np.sqrt(mean_squared_error(item_data['y'], item_data['yhat'])) if SKLEARN_AVAILABLE else simple_rmse(item_data['y'], item_data['yhat'])
+                                        r2 = r2_score(item_data['y'], item_data['yhat']) if SKLEARN_AVAILABLE else simple_r2(item_data['y'], item_data['yhat'])
+                                        
+                                        metrics_data.append({
+                                            'Item': item,
+                                            'MAPE': mape,
+                                            'RMSE': rmse,
+                                            'R²': r2
+                                        })
+                                
+                                if metrics_data:
+                                    metrics_df = pd.DataFrame(metrics_data)
+                                    st.dataframe(metrics_df.style.format({
+                                        'MAPE': '{:.1f}%',
+                                        'RMSE': '{:.2f}',
+                                        'R²': '{:.3f}'
+                                    }))
+                            else:
+                                # Single time series metrics
+                                mape = mean_absolute_percentage_error(actuals_with_forecast['y'], actuals_with_forecast['yhat'])
+                                rmse = np.sqrt(mean_squared_error(actuals_with_forecast['y'], actuals_with_forecast['yhat'])) if SKLEARN_AVAILABLE else simple_rmse(actuals_with_forecast['y'], actuals_with_forecast['yhat'])
+                                r2 = r2_score(actuals_with_forecast['y'], actuals_with_forecast['yhat']) if SKLEARN_AVAILABLE else simple_r2(actuals_with_forecast['y'], actuals_with_forecast['yhat'])
+                                
+                                # Display metrics with conditional formatting
+                                cols = st.columns(3)
+                                metrics = [
+                                    ('MAPE', f"{mape:.1f}%", get_metric_color('mape', mape)),
+                                    ('RMSE', f"{rmse:.2f}", get_metric_color('rmse', rmse)),
+                                    ('R²', f"{r2:.3f}", get_metric_color('r2', r2))
+                                ]
+                                
+                                for col, (label, value, color) in zip(cols, metrics):
+                                    col.markdown(f"""
+                                        <div style="
+                                            border-left: 4px solid {color};
+                                            padding: 12px;
+                                            background-color: {color}10;
+                                            border-radius: 8px;
+                                            margin-bottom: 10px;
+                                        ">
+                                            <div style="font-size: 0.9em; color: #444; margin-bottom: 8px;">{label}</div>
+                                            <div style="font-size: 1.8em; font-weight: bold; color: {color}">{value}</div>
+                                        </div>
+                                    """, unsafe_allow_html=True)
+                                
+                                # Interpretation guide
+                                st.markdown(f"""
+                                <div style='background: {CARD}; padding: 1rem; border-radius: 8px; border: 1px solid {BORDER}; margin-top: 1rem;'>
+                                    <h4 style='color: {PRIMARY}; margin-bottom: 0.5rem;'>📊 Metric Interpretation</h4>
+                                    <ul style='margin: 0;'>
+                                        <li><strong style='color: {ACCENT};'>MAPE &lt; 10%:</strong> Excellent forecast accuracy</li>
+                                        <li><strong style='color: #F59E0B;'>MAPE 10-20%:</strong> Good forecast accuracy</li>
+                                        <li><strong style='color: #EF4444;'>MAPE &gt; 20%:</strong> Needs improvement</li>
+                                        <li><strong style='color: {ACCENT};'>R² &gt; 0.7:</strong> Strong relationship</li>
+                                        <li><strong style='color: #F59E0B;'>R² 0.5-0.7:</strong> Moderate relationship</li>
+                                    </ul>
+                                </div>
+                                """, unsafe_allow_html=True)
+                    
+                    # Enhanced export with item name
+                    st.subheader("💾 Export Forecast")
+                    download_df = combined_result.copy()
+                    
+                    csv = download_df.to_csv(index=False)
+                    filename = "supply_chain_forecast"
+                    if selected_items:
+                        filename += f"_{len(selected_items)}_items"
+                    else:
+                        filename += "_all_data"
+                    filename += f"_{datetime.now().strftime('%Y%m%d')}.csv"
+                    
+                    st.download_button(
+                        "⬇️ Download Enhanced Forecast CSV",
+                        csv,
+                        filename,
+                        "text/csv"
+                    )
+                    
+                    st.success("✅ Forecast generated and ready for analysis!")
+                    
+                except Exception as e:
+                    st.error(f"Forecast failed: {str(e)}")
+
+    else:
+        st.info("ℹ️ Please upload your data to begin forecasting")
+
 # ---------------------------
 # Sidebar
 # ---------------------------
@@ -343,9 +841,9 @@ with st.sidebar:
     
     st.write("---")
     
-    # Navigation
+    # Navigation - UPDATED to include Forecasting
     st.markdown("### 🧭 Navigation")
-    nav_options = ["🏠 Home", "👨‍💻 Profile", "💼 Experience", "📊 Dashboards", "🚀 Projects", "🛠️ Skills", "📞 Contact"]
+    nav_options = ["🏠 Home", "👨‍💻 Profile", "💼 Experience", "📊 Dashboards", "🔮 Forecasting", "🚀 Projects", "🛠️ Skills", "📞 Contact"]
     selected_nav = st.radio("", nav_options, label_visibility="collapsed")
     
     st.write("---")
@@ -447,8 +945,8 @@ if "🏠 Home" in selected_nav:
             if st.button("📊 View Dashboards", use_container_width=True):
                 st.session_state.nav = "📊 Dashboards"
         with col2:
-            if st.button("🚀 Projects", use_container_width=True):
-                st.session_state.nav = "🚀 Projects"
+            if st.button("🔮 Forecasting Demo", use_container_width=True):
+                st.session_state.nav = "🔮 Forecasting"
         with col3:
             if st.button("📞 Contact Me", use_container_width=True):
                 st.session_state.nav = "📞 Contact"
@@ -786,6 +1284,10 @@ elif "📊 Dashboards" in selected_nav:
             'Status': ['On Track', 'Improving', 'Excellent', 'Good']
         })
         st.dataframe(metrics_data, use_container_width=True)
+
+# NEW FORECASTING SECTION
+elif "🔮 Forecasting" in selected_nav:
+    forecasting_app()
 
 elif "🚀 Projects" in selected_nav:
     st.markdown("## 🚀 Supply Chain Projects")
