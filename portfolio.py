@@ -49,7 +49,7 @@ SECONDARY = "#7C3AED"         # Purple
 BG = "#FFFFFF"                # White background
 CARD = "#F1F5F9"              # Light gray cards
 TEXT = "#0F172A"              # Dark text for better readability
-SUBTEXT = "#475569"           # Medium gray subtext
+SUBTEXT = "#000000"           # Medium gray subtext
 BORDER = "#CBD5E1"            # Light border
 
 st.markdown(f"""
@@ -1569,6 +1569,7 @@ st.markdown(f"""
     <p style='margin: 0; font-size: 0.9em;'>Transforming supply chains through data analytics and business intelligence</p>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
