@@ -44,13 +44,13 @@ st.set_page_config(
 
 # Light professional color scheme
 PRIMARY = "#2563EB"           # Professional blue
-ACCENT = "#059669"            # Professional green
+ACCENT = "#06B6D4"            # Professional green
 SECONDARY = "#7C3AED"         # Purple
 BG = "#FFFFFF"                # White background
-CARD = "#F8FAFC"              # Light gray cards
-TEXT = "#1E293B"              # Dark text for better readability
+CARD = "#F1F5F9"              # Light gray cards
+TEXT = "#0F172A"              # Dark text for better readability
 SUBTEXT = "#475569"           # Medium gray subtext
-BORDER = "#E2E8F0"            # Light border
+BORDER = "#CBD5E1"            # Light border
 
 st.markdown(f"""
 <style>
@@ -1569,3 +1569,4 @@ st.markdown(f"""
     <p style='margin: 0; font-size: 0.9em;'>Transforming supply chains through data analytics and business intelligence</p>
 </div>
 """, unsafe_allow_html=True)
+
