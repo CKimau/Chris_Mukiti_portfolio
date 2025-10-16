@@ -36,7 +36,7 @@ except ImportError:
 # Page config & Theme
 # ---------------------------
 st.set_page_config(
-    page_title="Chris Kimau — Supply Chain Forecasting & Analytics Specialist",
+    page_title="Chris Kimau — Analytics & Forecasting Specialist",
     page_icon="📊", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1565,8 +1565,9 @@ elif "📞 Contact" in selected_nav:
 st.markdown("---")
 st.markdown(f"""
 <div style='text-align: center; color: {SUBTEXT}; padding: 2rem 0;'>
-    <p style='margin-bottom: 0.5rem;'>Built with ❤️ using Streamlit • {datetime.now().year} Chris Kimau</p>
+    <p style='margin-bottom: 0.5rem;'> CK • {datetime.now().year} Chris Kimau</p>
     <p style='margin: 0; font-size: 0.9em;'>Transforming supply chains through data analytics and business intelligence</p>
 </div>
 """, unsafe_allow_html=True)
+
 
