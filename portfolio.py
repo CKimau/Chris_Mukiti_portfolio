@@ -958,7 +958,7 @@ if "🏠 Home" in selected_nav:
             <div class='badge' style='margin-top: 1rem;'>Available for Projects</div>
             <div style='margin-top: 2rem; padding: 1.5rem; background: rgba(37, 99, 235, 0.08); border-radius: 12px;'>
                 <h4 style='color: {PRIMARY}; margin-bottom: 8px;'>Current Role</h4>
-                <p style='margin: 0; font-weight: 600; color: {TEXT};'>Supply Chain Manager</p>
+                <p style='margin: 0; font-weight: 600; color: {TEXT};'>Warehouse Manager</p>
                 <p style='margin: 4px 0; color: {SUBTEXT};'>Skanem Africa</p>
                 <p style='margin: 0; color: {SUBTEXT};'>Oct 2024 - Present</p>
             </div>
@@ -1569,5 +1569,6 @@ st.markdown(f"""
     <p style='margin: 0; font-size: 0.9em;'>Transforming supply chains through data analytics and business intelligence</p>
 </div>
 """, unsafe_allow_html=True)
+
 
 
